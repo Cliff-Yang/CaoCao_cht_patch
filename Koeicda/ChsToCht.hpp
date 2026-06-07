@@ -15,6 +15,13 @@ static std::map<wchar_t, wchar_t> UTF16_CHS_TO_CHT_Dictionary;
 static std::vector<std::pair<std::wstring, std::wstring>> CHS_TO_CHT_Phrases;
 static size_t MaxPhraseLen = 0;
 
+// 轉換統計 (DEBUG log 用): 詞庫命中數 / 單字 dictionary 命中數
+struct ConvertStats
+{
+    int phraseHits;
+    int dictHits;
+};
+
 void Read_Dictionary_File(std::wstring dictionary_file_path)
 {
     std::ifstream inFile(dictionary_file_path);
@@ -116,8 +123,9 @@ void Read_Phrase_File(std::wstring phrase_file_path)
 //   先用詞庫貪婪最長匹配, 未被詞庫覆蓋的一對多字再套單字 dictionary。
 //   其餘字(含非中文/格式字元)保持原樣, 交給 ScriptStringAnalyse 處理。
 //   有變更才回傳 true 並把結果寫入 out(GBK)。
-bool GBK_ResolveAmbiguousSentence(const char* gbk, char* out, size_t outsz)
+bool GBK_ResolveAmbiguousSentence(const char* gbk, char* out, size_t outsz, ConvertStats* stats = nullptr)
 {
+    if (stats != nullptr) { stats->phraseHits = 0; stats->dictHits = 0; }
     if (gbk == nullptr) return false;
 
     int wlen = MultiByteToWideChar(936, 0, gbk, -1, nullptr, 0); // 含結尾 0
@@ -143,6 +151,7 @@ bool GBK_ResolveAmbiguousSentence(const char* gbk, char* out, size_t outsz)
                 {
                     ws.replace(i, L, p.second);
                     changed = true;
+                    if (stats != nullptr) stats->phraseHits++;
                     i += L;
                     matched = true;
                     break;
@@ -157,6 +166,7 @@ bool GBK_ResolveAmbiguousSentence(const char* gbk, char* out, size_t outsz)
             {
                 ws[i] = it->second;
                 changed = true;
+                if (stats != nullptr) stats->dictHits++;
             }
             i++;
         }

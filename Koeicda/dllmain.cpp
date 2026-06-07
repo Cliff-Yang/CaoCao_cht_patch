@@ -229,14 +229,38 @@ static HookManager PrintfImpl_HookManager {
     MyPrintfImpl
 };
 
+#ifdef _DEBUG
+// DEBUG 組態才編入: 把轉換前/後文字與命中狀況寫到遊戲目錄下的 convert_log.txt
+//   (字串為 GBK, 請以 GBK/ANSI 編碼開啟檢視)
+#include <cstdio>
+static void DebugLogConvert(const char* before, const char* after, bool matched, const ConvertStats& stats)
+{
+    FILE* fp = nullptr;
+    if (fopen_s(&fp, "convert_log.txt", "ab") != 0 || fp == nullptr) return;
+    fputs("[before] ", fp); if (before != nullptr) fputs(before, fp); fputc('\n', fp);
+    fputs("[after ] ", fp); if (after  != nullptr) fputs(after,  fp); fputc('\n', fp);
+    fprintf(fp, "[match ] %s (phrase=%d, dict=%d)\n\n",
+        matched ? "YES" : "no", stats.phraseHits, stats.dictHits);
+    fclose(fp);
+}
+#endif
+
 int __cdecl MyPrintfImpl(void** pArgs)
 {
     char* fmt = (pArgs != nullptr) ? (char*)pArgs[0] : nullptr;
     char* saved = fmt;
     static char converted[8192];
 
+#ifdef _DEBUG
+    ConvertStats stats = { 0, 0 };
+    bool matched = (fmt != nullptr) &&
+        GBK_ResolveAmbiguousSentence(fmt, converted, sizeof(converted), &stats);
+    if (matched) pArgs[0] = converted;
+    if (fmt != nullptr) DebugLogConvert(fmt, matched ? converted : fmt, matched, stats);
+#else
     if (fmt != nullptr && GBK_ResolveAmbiguousSentence(fmt, converted, sizeof(converted)))
         pArgs[0] = converted;
+#endif
 
     PrintfImpl_HookManager.unhook();
     int ret = ((PrintfImpl_t)GetPrintfImplAddr())(pArgs);
