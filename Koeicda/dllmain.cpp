@@ -66,7 +66,7 @@ MCIERROR WINAPI MyMciSendCommandA(MCIDEVICEID IDDevice, UINT uMsg, DWORD_PTR fdw
         }
         break;
     }
-        
+
     case MCI_SET:
     {
         if (IDDevice == MAGIC_DEVICE_ID) {
@@ -102,7 +102,7 @@ MCIERROR WINAPI MyMciSendCommandA(MCIDEVICEID IDDevice, UINT uMsg, DWORD_PTR fdw
 
             MciSendCommandA_HookManager.unhook();
             mciSendCommandA(NULL, MCI_OPEN, MCI_OPEN_ELEMENT, (DWORD_PTR)&open_param);
-            
+
             s_device_id = open_param.wDeviceID;
             play_param->dwFrom = 0;
 
@@ -192,12 +192,57 @@ _Check_return_ HRESULT WINAPI MyScriptStringAnalyse(
     int c = cString;
     const WCHAR* chs_string = (WCHAR*)pString;
     std::wstring cht_string = UTF16LE_CHS_To_CHT(chs_string, c);
-    UTF16LE_FixOneToMany(cht_string);
+    // 一對多的字由 printf 層用整句上下文決定, 此處保留原字不亂轉
+    UTF16LE_KeepAmbiguousAsIs(cht_string, chs_string, c);
 
     ScriptStringAnalyse_HookManager.unhook();
     auto ret = ScriptStringAnalyse(hdc, cht_string.c_str(), cString, cGlyphs, iCharset, dwFlags, iReqWidth
         , psControl, psState, piDx, pTabdef, pbInClass, pssa);
     ScriptStringAnalyse_HookManager.hook();
+    return ret;
+}
+
+//*****************************************************
+// printf_impl hook (整句簡轉繁: 一對多上下文修正)
+//   遊戲所有文字都經過 Ekd5.exe 內的 printf_impl(void** pArgs),
+//   pArgs[0] = 整句 GBK 格式字串。在這裡用整句上下文(詞庫)把一對多
+//   的字改寫成正確繁體 GBK; 其餘單純轉換仍交給 ScriptStringAnalyse。
+//   注意: PRINTF_IMPL_RVA 是此版 Ekd5.exe 的固定位址 (image base 0x400000),
+//         換遊戲版本就要重新用呼叫堆疊找出新的位址。
+//*****************************************************
+
+#define PRINTF_IMPL_RVA 0x0000E56B
+
+typedef int (__cdecl *PrintfImpl_t)(void** pArgs);
+
+static PVOID GetPrintfImplAddr()
+{
+    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + PRINTF_IMPL_RVA);
+}
+
+extern "C" {
+    int __cdecl MyPrintfImpl(void** pArgs);
+}
+
+static HookManager PrintfImpl_HookManager {
+    GetPrintfImplAddr(),
+    MyPrintfImpl
+};
+
+int __cdecl MyPrintfImpl(void** pArgs)
+{
+    char* fmt = (pArgs != nullptr) ? (char*)pArgs[0] : nullptr;
+    char* saved = fmt;
+    static char converted[8192];
+
+    if (fmt != nullptr && GBK_ResolveAmbiguousSentence(fmt, converted, sizeof(converted)))
+        pArgs[0] = converted;
+
+    PrintfImpl_HookManager.unhook();
+    int ret = ((PrintfImpl_t)GetPrintfImplAddr())(pArgs);
+    PrintfImpl_HookManager.hook();
+
+    if (pArgs != nullptr) pArgs[0] = saved; // 還原, 避免動到呼叫者資料
     return ret;
 }
 
@@ -210,10 +255,11 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH:
     {
-        std::wstring dictionary_file_path = L"dictionary.txt";
-        Read_Dictionary_File(dictionary_file_path);
+        Read_Dictionary_File(L"dictionary.txt");
+        Read_Phrase_File(L"phrases.txt");
         ScriptStringAnalyse_HookManager.hook();
         MciSendCommandA_HookManager.hook();
+        PrintfImpl_HookManager.hook();
         break;
     }
     case DLL_THREAD_ATTACH:
@@ -223,4 +269,3 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     }
     return TRUE;
 }
-
