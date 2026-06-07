@@ -204,33 +204,8 @@ _Check_return_ HRESULT WINAPI MyScriptStringAnalyse(
 }
 
 //*****************************************************
-// printf_impl hook (整句簡轉繁: 一對多上下文修正)
-//   遊戲所有文字都經過 Ekd5.exe 內的 printf_impl(void** pArgs),
-//   pArgs[0] = 整句 GBK 格式字串。在這裡用整句上下文(詞庫)把一對多
-//   的字改寫成正確繁體 GBK; 其餘單純轉換仍交給 ScriptStringAnalyse。
-//   注意: PRINTF_IMPL_RVA 是此版 Ekd5.exe 的固定位址 (image base 0x400000),
-//         換遊戲版本就要重新用呼叫堆疊找出新的位址。
+// 特徵碼掃描功能 (AOB Scan)
 //*****************************************************
-
-// 已知此版 Ekd5.exe 的 printf_impl 位址 (image base 0x400000)。
-#define PRINTF_IMPL_RVA 0x0000E56B
-
-typedef int (__cdecl *PrintfImpl_t)(void** pArgs);
-
-// printf_impl 進入點特徵碼 (signature / AOB)。中間的 imm32 是絕對位址(0x492e30),
-// 會隨版本/重編而變, 以萬用字元 '?' 略過; 其餘是這個 printf_impl 獨有的序列。
-//   55 8B EC 83 EC 64        push ebp; mov ebp,esp; sub esp,0x64
-//   C7 45 FC ?? ?? ?? ??     mov [ebp-4], <abs>
-//   8B 45 08 8B 08 89 4D BC  eax=pArgs; ecx=*pArgs(fmt); [ebp-0x44]=fmt
-//   8B 55 08 83 C2 04 89 55 08   pArgs += 4 (va_list)
-//   8B 45 08 89 45 B8        [ebp-0x48]=pArgs
-static const unsigned char kPrintfSig[] = {
-    0x55,0x8B,0xEC,0x83,0xEC,0x64,0xC7,0x45,0xFC, 0x00,0x00,0x00,0x00,
-    0x8B,0x45,0x08,0x8B,0x08,0x89,0x4D,0xBC,
-    0x8B,0x55,0x08,0x83,0xC2,0x04,0x89,0x55,0x08,
-    0x8B,0x45,0x08,0x89,0x45,0xB8
-};
-static const char kPrintfMask[] = "xxxxxxxxx????xxxxxxxxxxxxxxxxxxxxxxx";
 
 static bool SigMatch(const BYTE* p, const unsigned char* sig, const char* mask)
 {
@@ -239,45 +214,96 @@ static bool SigMatch(const BYTE* p, const unsigned char* sig, const char* mask)
     return true;
 }
 
-// 定位 printf_impl: 先驗證寫死的 RVA, 不符再掃描所有可執行區段。找不到回 nullptr。
-static PVOID FindPrintfImpl()
+static PVOID FindAddress(const unsigned char* sig, const char* mask, DWORD hardcodedRva)
 {
     BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
     if (base == nullptr) return nullptr;
 
     auto dos = (PIMAGE_DOS_HEADER)base;
-    auto nt  = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
+    auto nt = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
     DWORD imageSize = nt->OptionalHeader.SizeOfImage;
-    size_t sigLen = sizeof(kPrintfSig);
+    size_t sigLen = strlen(mask);
 
-    // 1) 先驗證寫死的 RVA 是否仍符合特徵 (快速路徑)
-    if (PRINTF_IMPL_RVA + sigLen <= imageSize)
+    // 1) 先驗證寫死的 RVA
+    if (hardcodedRva + sigLen <= imageSize)
     {
-        BYTE* guess = base + PRINTF_IMPL_RVA;
-        if (SigMatch(guess, kPrintfSig, kPrintfMask))
+        BYTE* guess = base + hardcodedRva;
+        if (SigMatch(guess, sig, mask))
             return guess;
     }
 
-    // 2) RVA 不符 -> 掃描可執行區段找特徵 (換版本時自動找新位址)
+    // 2) 掃描所有可執行區段
     auto sec = IMAGE_FIRST_SECTION(nt);
     for (WORD s = 0; s < nt->FileHeader.NumberOfSections; ++s)
     {
         if (!(sec[s].Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
         BYTE* start = base + sec[s].VirtualAddress;
-        DWORD size  = sec[s].Misc.VirtualSize;
+        DWORD size = sec[s].Misc.VirtualSize;
         if (size < sigLen) continue;
         for (BYTE* p = start; p <= start + size - sigLen; ++p)
-            if (SigMatch(p, kPrintfSig, kPrintfMask))
+            if (SigMatch(p, sig, mask))
                 return p;
     }
     return nullptr;
 }
 
-static PVOID        g_PrintfImplAddr = nullptr;
+// --- PrintfImpl ---
+//   [功能] 核心 printf 實作，負責格式化所有遊戲內部的變長參數字串。
+//   [特徵]
+//     55 8B EC 83 EC 64           : push ebp; mov ebp,esp; sub esp,64h
+//     C7 45 FC ?? ?? ?? ??        : mov [ebp-4], <abs_addr> (此位址隨版本變動)
+//     8B 45 08 8B 08 89 4D BC     : eax=pArgs; ecx=*pArgs(fmt); [ebp-44h]=fmt
+//     8B 55 08 83 C2 04 89 55 08  : pArgs+=4 (指向 va_list); [ebp+8]=pArgs
+#define PRINTF_IMPL_RVA 0x0000E56B
+static const unsigned char kPrintfSig[] = {
+    0x55,0x8B,0xEC,0x83,0xEC,0x64,0xC7,0x45,0xFC, 0x00,0x00,0x00,0x00,
+    0x8B,0x45,0x08,0x8B,0x08,0x89,0x4D,0xBC,
+    0x8B,0x55,0x08,0x83,0xC2,0x04,0x89,0x55,0x08,
+    0x8B,0x45,0x08,0x89,0x45,0xB8
+};
+static const char kPrintfMask[] = "xxxxxxxxx????xxxxxxxxxxxxxxxxxxxxxxx";
+
+// --- GameTextPrintf ---
+//   [功能] 遊戲繪圖引擎的文字輸出包裝函數，對話框逐字顯示時會頻繁呼叫。
+//   [特徵]
+//     55 8B EC                    : push ebp; mov ebp,esp
+//     E8 ?? ?? ?? ??              : call <sync_state_func> (相對位址隨版本變動)
+//     8D 45 0C 50                 : lea eax,[ebp+0Ch]; push eax (取得 fmt 的位址)
+//     E8 ?? ?? ?? ??              : call <printf_impl> (相對位址隨版本變動)
+#define GAME_TEXT_PRINTF_RVA 0x0000FAA0
+static const unsigned char kGameTextPrintfSig[] = {
+    0x55, 0x8B, 0xEC, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x8D, 0x45, 0x0C, 0x50, 0xE8, 0x00, 0x00, 0x00, 0x00
+};
+static const char kGameTextPrintfMask[] = "xxxx????xxxxx????";
+
+// --- FullSentenceCall (DialogRender) ---
+//   [功能] 對話框渲染進入點，此處傳入的是尚未拆解的完整簡體 GBK 句子。
+//   [特徵]
+//     55 8B EC 83 EC 18           : push ebp; mov ebp,esp; sub esp,18h
+//     8B 45 10 89 45 F8           : eax=[ebp+10h](full_text); [ebp-8]=eax
+//     C7 45 F4 00 00 00 00        : mov [ebp-0Ch], 0 (初始化計數器)
+#define FULL_SENTENCE_CALL_RVA 0x0002C8B0
+static const unsigned char kFullSentenceCallSig[] = {
+    0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x8B, 0x45, 0x10, 0x89, 0x45, 0xF8, 0xC7, 0x45, 0xF4, 0x00, 0x00, 0x00, 0x00
+};
+static const char kFullSentenceCallMask[] = "xxxxxxxxxxxxxxxxxxx";
+
+static PVOID g_PrintfImplAddr = nullptr;
+static PVOID g_GameTextPrintfAddr = nullptr;
+static PVOID g_FullSentenceCallAddr = nullptr;
+
 static HookManager* g_PrintfImplHook = nullptr;
+static HookManager* g_GameTextPrintfHook = nullptr;
+static HookManager* g_FullSentenceCallHook = nullptr;
+
+typedef int (__cdecl *PrintfImpl_t)(void** pArgs);
+typedef int(__cdecl* GameTextPrintf_t)(void* arg1, const char* fmt, ...);
+typedef int(__cdecl* FullSentenceCall_t)(void* arg1, void* arg2, const char* full_text, int arg4);
 
 extern "C" {
     int __cdecl MyPrintfImpl(void** pArgs);
+    int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...);
+    int __cdecl MyFullSentenceCall(void* arg1, void* arg2, const char* full_text, int arg4);
 }
 
 #ifdef _DEBUG
@@ -318,40 +344,7 @@ int __cdecl MyPrintfImpl(void** pArgs)
     return ret;
 }
 
-//*****************************************************
-// GameTextPrintf
-//*****************************************************
-#define GAME_TEXT_PRINTF_RVA 0x0000FAA0
-#define FULL_SENTENCE_CALL_RVA 0x0002C8B0
-
-typedef int(__cdecl* GameTextPrintf_t)(void* arg1, const char* fmt, ...);
-
-static PVOID GetGameTextPrintfAddr()
-{
-    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + GAME_TEXT_PRINTF_RVA);
-}
-
-static PVOID GetFullSentenceCallAddr()
-{
-    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + FULL_SENTENCE_CALL_RVA);
-}
-
-extern "C" {
-    int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...);
-    int __cdecl FullSentenceCall(void* arg1, void* arg2, const char* full_text, int arg4);
-}
-
-static HookManager GameTextPrintf_HookManager{
-    GetGameTextPrintfAddr(),
-    MyGameTextPrintf
-};
-
-static HookManager FullSentenceCall_HookManager{
-    GetFullSentenceCallAddr(),
-    FullSentenceCall
-};
-
-int __cdecl FullSentenceCall(void* arg1, void* arg2, const char* full_text, int arg4)
+int __cdecl MyFullSentenceCall(void* arg1, void* arg2, const char* full_text, int arg4)
 {
     static char converted[8192];
     const char* target_text = full_text;
@@ -371,10 +364,9 @@ int __cdecl FullSentenceCall(void* arg1, void* arg2, const char* full_text, int 
 #endif
     }
 
-    FullSentenceCall_HookManager.unhook();
-    typedef int(__cdecl* DialogRender_t)(void*, void*, const char*, int);
-    int ret = ((DialogRender_t)GetFullSentenceCallAddr())(arg1, arg2, target_text, arg4);
-    FullSentenceCall_HookManager.hook();
+    g_FullSentenceCallHook->unhook();
+    int ret = ((FullSentenceCall_t)g_FullSentenceCallAddr)(arg1, arg2, target_text, arg4);
+    g_FullSentenceCallHook->hook();
 
     return ret;
 }
@@ -399,11 +391,11 @@ int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...)
     }
 #endif
 
-    GameTextPrintf_HookManager.unhook();
+    g_GameTextPrintfHook->unhook();
+    // 使用 printf_impl 轉發以確保參數正確
     typedef int(__cdecl* printf_impl_t)(void**);
-    printf_impl_t original_impl = (printf_impl_t)((BYTE*)GetModuleHandleW(nullptr) + 0xE56B);
-    int ret = original_impl((void**)&fmt);
-    GameTextPrintf_HookManager.hook();
+    int ret = ((printf_impl_t)g_PrintfImplAddr)((void**)&fmt);
+    g_GameTextPrintfHook->hook();
 
     return ret;
 }
@@ -421,30 +413,46 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         Read_Phrase_File(L"phrases.txt");
         ScriptStringAnalyse_HookManager.hook();
         MciSendCommandA_HookManager.hook();
-        GameTextPrintf_HookManager.hook();
-        FullSentenceCall_HookManager.hook();
 
-        // 用特徵碼定位 printf_impl (驗證寫死 RVA / 換版本時自動掃描)
-        g_PrintfImplAddr = FindPrintfImpl();
-        if (g_PrintfImplAddr != nullptr)
-        {
+        // 1. Find and Hook PrintfImpl
+        g_PrintfImplAddr = FindAddress(kPrintfSig, kPrintfMask, PRINTF_IMPL_RVA);
+        if (g_PrintfImplAddr) {
             g_PrintfImplHook = new HookManager(g_PrintfImplAddr, MyPrintfImpl);
             g_PrintfImplHook->hook();
         }
+
+        // 2. Find and Hook GameTextPrintf
+        g_GameTextPrintfAddr = FindAddress(kGameTextPrintfSig, kGameTextPrintfMask, GAME_TEXT_PRINTF_RVA);
+        if (g_GameTextPrintfAddr) {
+            g_GameTextPrintfHook = new HookManager(g_GameTextPrintfAddr, MyGameTextPrintf);
+            g_GameTextPrintfHook->hook();
+        }
+
+        // 3. Find and Hook FullSentenceCall
+        g_FullSentenceCallAddr = FindAddress(kFullSentenceCallSig, kFullSentenceCallMask, FULL_SENTENCE_CALL_RVA);
+        if (g_FullSentenceCallAddr) {
+            g_FullSentenceCallHook = new HookManager(g_FullSentenceCallAddr, MyFullSentenceCall);
+            g_FullSentenceCallHook->hook();
+        }
+
 #ifdef _DEBUG
         {
             FILE* fp = nullptr;
             if (fopen_s(&fp, "convert_log.txt", "ab") == 0 && fp != nullptr)
             {
                 BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
-                if (g_PrintfImplAddr == nullptr)
-                    fprintf(fp, "[printf_impl] 特徵碼掃描失敗, 未 hook (請重新定位)\n\n");
-                else
-                    fprintf(fp, "[printf_impl] addr=%p rva=0x%X %s\n\n",
-                        g_PrintfImplAddr,
-                        (unsigned)((BYTE*)g_PrintfImplAddr - base),
-                        ((BYTE*)g_PrintfImplAddr == base + PRINTF_IMPL_RVA)
-                            ? "(寫死 RVA 命中)" : "(掃描找到, 與寫死 RVA 不同)");
+                auto logAddr = [&](const char* name, PVOID addr, DWORD rva) {
+                    if (addr == nullptr)
+                        fprintf(fp, "[%s] 特徵碼掃描失敗, 未 hook\n", name);
+                    else
+                        fprintf(fp, "[%s] addr=%p rva=0x%X %s\n",
+                            name, addr, (unsigned)((BYTE*)addr - base),
+                            ((BYTE*)addr == base + rva) ? "(寫死 RVA 命中)" : "(掃描找到)");
+                };
+                logAddr("printf_impl", g_PrintfImplAddr, PRINTF_IMPL_RVA);
+                logAddr("GameTextPrintf", g_GameTextPrintfAddr, GAME_TEXT_PRINTF_RVA);
+                logAddr("FullSentenceCall", g_FullSentenceCallAddr, FULL_SENTENCE_CALL_RVA);
+                fputc('\n', fp);
                 fclose(fp);
             }
         }
