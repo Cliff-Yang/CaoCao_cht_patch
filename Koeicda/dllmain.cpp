@@ -298,25 +298,40 @@ static void DebugLogConvert(const char* before, const char* after, bool matched,
 int __cdecl MyPrintfImpl(void** pArgs)
 {
     char* fmt = (pArgs != nullptr) ? (char*)pArgs[0] : nullptr;
-    char* saved = fmt;
+    char* fmt_var = (pArgs != nullptr) ? (char*)pArgs[1] : nullptr; // 參考特徵碼註解 pArgs += 4 (va_list)
+    char* saved_fmt = fmt;
+    char* saved_var = fmt_var;
     static char converted[8192];
+
+    char* target = fmt;
+    bool isFmtS = (fmt != nullptr && strcmp(fmt, "%s") == 0);
+    if (isFmtS) target = fmt_var;
 
 #ifdef _DEBUG
     ConvertStats stats = { 0, 0 };
-    bool matched = (fmt != nullptr) &&
-        GBK_ResolveAmbiguousSentence(fmt, converted, sizeof(converted), &stats);
-    if (matched) pArgs[0] = converted;
-    if (fmt != nullptr) DebugLogConvert(fmt, matched ? converted : fmt, matched, stats);
+    bool matched = (target != nullptr) &&
+        GBK_ResolveAmbiguousSentence(target, converted, sizeof(converted), &stats);
+    if (matched) {
+        if (isFmtS) pArgs[1] = converted;
+        else pArgs[0] = converted;
+    }
+    if (target != nullptr) DebugLogConvert(target, matched ? converted : target, matched, stats);
 #else
-    if (fmt != nullptr && GBK_ResolveAmbiguousSentence(fmt, converted, sizeof(converted)))
-        pArgs[0] = converted;
+    if (target != nullptr && GBK_ResolveAmbiguousSentence(target, converted, sizeof(converted)))
+    {
+        if (isFmtS) pArgs[1] = converted;
+        else pArgs[0] = converted;
+    }
 #endif
 
     g_PrintfImplHook->unhook();
     int ret = ((PrintfImpl_t)g_PrintfImplAddr)(pArgs);
     g_PrintfImplHook->hook();
 
-    if (pArgs != nullptr) pArgs[0] = saved; // 還原, 避免動到呼叫者資料
+    if (pArgs != nullptr) {
+        pArgs[0] = saved_fmt;
+        if (isFmtS) pArgs[1] = saved_var;
+    }
     return ret;
 }
 
