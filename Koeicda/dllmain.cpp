@@ -211,23 +211,73 @@ _Check_return_ HRESULT WINAPI MyScriptStringAnalyse(
 //         換遊戲版本就要重新用呼叫堆疊找出新的位址。
 //*****************************************************
 
+// 已知此版 Ekd5.exe 的 printf_impl 位址 (image base 0x400000)。
 #define PRINTF_IMPL_RVA 0x0000E56B
 
 typedef int (__cdecl *PrintfImpl_t)(void** pArgs);
 
-static PVOID GetPrintfImplAddr()
+// printf_impl 進入點特徵碼 (signature / AOB)。中間的 imm32 是絕對位址(0x492e30),
+// 會隨版本/重編而變, 以萬用字元 '?' 略過; 其餘是這個 printf_impl 獨有的序列。
+//   55 8B EC 83 EC 64        push ebp; mov ebp,esp; sub esp,0x64
+//   C7 45 FC ?? ?? ?? ??     mov [ebp-4], <abs>
+//   8B 45 08 8B 08 89 4D BC  eax=pArgs; ecx=*pArgs(fmt); [ebp-0x44]=fmt
+//   8B 55 08 83 C2 04 89 55 08   pArgs += 4 (va_list)
+//   8B 45 08 89 45 B8        [ebp-0x48]=pArgs
+static const unsigned char kPrintfSig[] = {
+    0x55,0x8B,0xEC,0x83,0xEC,0x64,0xC7,0x45,0xFC, 0x00,0x00,0x00,0x00,
+    0x8B,0x45,0x08,0x8B,0x08,0x89,0x4D,0xBC,
+    0x8B,0x55,0x08,0x83,0xC2,0x04,0x89,0x55,0x08,
+    0x8B,0x45,0x08,0x89,0x45,0xB8
+};
+static const char kPrintfMask[] = "xxxxxxxxx????xxxxxxxxxxxxxxxxxxxxxxx";
+
+static bool SigMatch(const BYTE* p, const unsigned char* sig, const char* mask)
 {
-    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + PRINTF_IMPL_RVA);
+    for (; *mask; ++mask, ++p, ++sig)
+        if (*mask == 'x' && *p != *sig) return false;
+    return true;
 }
+
+// 定位 printf_impl: 先驗證寫死的 RVA, 不符再掃描所有可執行區段。找不到回 nullptr。
+static PVOID FindPrintfImpl()
+{
+    BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
+    if (base == nullptr) return nullptr;
+
+    auto dos = (PIMAGE_DOS_HEADER)base;
+    auto nt  = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
+    DWORD imageSize = nt->OptionalHeader.SizeOfImage;
+    size_t sigLen = sizeof(kPrintfSig);
+
+    // 1) 先驗證寫死的 RVA 是否仍符合特徵 (快速路徑)
+    if (PRINTF_IMPL_RVA + sigLen <= imageSize)
+    {
+        BYTE* guess = base + PRINTF_IMPL_RVA;
+        if (SigMatch(guess, kPrintfSig, kPrintfMask))
+            return guess;
+    }
+
+    // 2) RVA 不符 -> 掃描可執行區段找特徵 (換版本時自動找新位址)
+    auto sec = IMAGE_FIRST_SECTION(nt);
+    for (WORD s = 0; s < nt->FileHeader.NumberOfSections; ++s)
+    {
+        if (!(sec[s].Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        BYTE* start = base + sec[s].VirtualAddress;
+        DWORD size  = sec[s].Misc.VirtualSize;
+        if (size < sigLen) continue;
+        for (BYTE* p = start; p <= start + size - sigLen; ++p)
+            if (SigMatch(p, kPrintfSig, kPrintfMask))
+                return p;
+    }
+    return nullptr;
+}
+
+static PVOID        g_PrintfImplAddr = nullptr;
+static HookManager* g_PrintfImplHook = nullptr;
 
 extern "C" {
     int __cdecl MyPrintfImpl(void** pArgs);
 }
-
-static HookManager PrintfImpl_HookManager {
-    GetPrintfImplAddr(),
-    MyPrintfImpl
-};
 
 #ifdef _DEBUG
 // DEBUG 組態才編入: 把轉換前/後文字與命中狀況寫到遊戲目錄下的 convert_log.txt
@@ -262,9 +312,9 @@ int __cdecl MyPrintfImpl(void** pArgs)
         pArgs[0] = converted;
 #endif
 
-    PrintfImpl_HookManager.unhook();
-    int ret = ((PrintfImpl_t)GetPrintfImplAddr())(pArgs);
-    PrintfImpl_HookManager.hook();
+    g_PrintfImplHook->unhook();
+    int ret = ((PrintfImpl_t)g_PrintfImplAddr)(pArgs);
+    g_PrintfImplHook->hook();
 
     if (pArgs != nullptr) pArgs[0] = saved; // 還原, 避免動到呼叫者資料
     return ret;
@@ -283,7 +333,32 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         Read_Phrase_File(L"phrases.txt");
         ScriptStringAnalyse_HookManager.hook();
         MciSendCommandA_HookManager.hook();
-        PrintfImpl_HookManager.hook();
+
+        // 用特徵碼定位 printf_impl (驗證寫死 RVA / 換版本時自動掃描)
+        g_PrintfImplAddr = FindPrintfImpl();
+        if (g_PrintfImplAddr != nullptr)
+        {
+            g_PrintfImplHook = new HookManager(g_PrintfImplAddr, MyPrintfImpl);
+            g_PrintfImplHook->hook();
+        }
+#ifdef _DEBUG
+        {
+            FILE* fp = nullptr;
+            if (fopen_s(&fp, "convert_log.txt", "ab") == 0 && fp != nullptr)
+            {
+                BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
+                if (g_PrintfImplAddr == nullptr)
+                    fprintf(fp, "[printf_impl] 特徵碼掃描失敗, 未 hook (請重新定位)\n\n");
+                else
+                    fprintf(fp, "[printf_impl] addr=%p rva=0x%X %s\n\n",
+                        g_PrintfImplAddr,
+                        (unsigned)((BYTE*)g_PrintfImplAddr - base),
+                        ((BYTE*)g_PrintfImplAddr == base + PRINTF_IMPL_RVA)
+                            ? "(寫死 RVA 命中)" : "(掃描找到, 與寫死 RVA 不同)");
+                fclose(fp);
+            }
+        }
+#endif
         break;
     }
     case DLL_THREAD_ATTACH:
