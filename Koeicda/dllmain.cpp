@@ -36,6 +36,8 @@
 #pragma comment(linker, "/EXPORT:CDAudioTerminate=Koeicda_Origin.CDAudioTerminate,@20")
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#define LOG_FILE "log.txt"
+
 //*****************************************************
 // MciSendCommandA
 //*****************************************************
@@ -313,7 +315,7 @@ extern "C" {
 static void DebugLogConvert(const char* before, const char* after, bool matched, const ConvertStats& stats)
 {
     FILE* fp = nullptr;
-    if (fopen_s(&fp, "convert_log.txt", "ab") != 0 || fp == nullptr) return;
+    if (fopen_s(&fp, LOG_FILE, "ab") != 0 || fp == nullptr) return;
     fputs("[before] ", fp); if (before != nullptr) fputs(before, fp); fputc('\n', fp);
     fputs("[after ] ", fp); if (after  != nullptr) fputs(after,  fp); fputc('\n', fp);
     fprintf(fp, "[match ] %s (phrase=%d, dict=%d)\n\n",
@@ -330,7 +332,7 @@ int __cdecl MyPrintfImpl(void** pArgs)
     char* fmt = (pArgs != nullptr) ? (char*)pArgs[0] : nullptr;
 
     FILE* fp = nullptr;
-    if (fopen_s(&fp, "convert_log.txt", "ab") == 0 && fp != nullptr)
+    if (fopen_s(&fp, LOG_FILE, "ab") == 0 && fp != nullptr)
     {
         fprintf(fp, "[PrintfImpl @ RVA 0x%08X] fmt=%s\n", rva, fmt ? fmt : "null");
         fclose(fp);
@@ -384,7 +386,7 @@ int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...)
     va_end(args);
 
     FILE* fp = nullptr;
-    if (fopen_s(&fp, "convert_log2.txt", "ab") == 0 && fp != nullptr)
+    if (fopen_s(&fp, LOG_FILE, "ab") == 0 && fp != nullptr)
     {
         fprintf(fp, "[GameTextPrintf @ RVA 0x%08X] %s\n", rva, buf);
         fclose(fp);
@@ -438,7 +440,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 #ifdef _DEBUG
         {
             FILE* fp = nullptr;
-            if (fopen_s(&fp, "convert_log.txt", "ab") == 0 && fp != nullptr)
+            if (fopen_s(&fp, LOG_FILE, "ab") == 0 && fp != nullptr)
             {
                 BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
                 auto logAddr = [&](const char* name, PVOID addr, DWORD rva) {
