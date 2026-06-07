@@ -9,6 +9,7 @@
 
 #include <mciapi.h>
 #include <digitalv.h>
+#include <intrin.h>
 #pragma comment(lib, "Winmm.lib")
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -335,6 +336,130 @@ int __cdecl MyPrintfImpl(void** pArgs)
     return ret;
 }
 
+//*****************************************************
+// GameTextPrintf
+//*****************************************************
+#define GAME_TEXT_PRINTF_RVA 0x0000FAA0
+#define FULL_SENTENCE_CALL_RVA 0x00031FCA
+#define DIALOG_RENDER_RVA 0x0002C8B0
+
+typedef int(__cdecl* GameTextPrintf_t)(void* arg1, const char* fmt, ...);
+
+static PVOID GetGameTextPrintfAddr()
+{
+    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + GAME_TEXT_PRINTF_RVA);
+}
+
+static PVOID GetFullSentenceCallAddr()
+{
+    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + FULL_SENTENCE_CALL_RVA);
+}
+
+static PVOID GetDialogRenderAddr()
+{
+    return (PVOID)((BYTE*)GetModuleHandleW(nullptr) + DIALOG_RENDER_RVA);
+}
+
+extern "C" {
+    int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...);
+    int __cdecl MyFullSentenceCallHook(void* arg1, const char* fmt, ...);
+    int __cdecl MyDialogRenderHook(void* arg1, void* arg2, const char* full_text, int arg4);
+}
+
+static HookManager GameTextPrintf_HookManager{
+    GetGameTextPrintfAddr(),
+    MyGameTextPrintf
+};
+
+static HookManager FullSentenceCall_HookManager{
+    GetFullSentenceCallAddr(),
+    MyFullSentenceCallHook
+};
+
+static HookManager DialogRender_HookManager{
+    GetDialogRenderAddr(),
+    MyDialogRenderHook
+};
+
+int __cdecl MyDialogRenderHook(void* arg1, void* arg2, const char* full_text, int arg4)
+{
+    if (full_text && strlen(full_text) > 0)
+    {
+        FILE* fp = nullptr;
+        if (fopen_s(&fp, "convert_log2.txt", "ab") == 0 && fp != nullptr)
+        {
+            fprintf(fp, "[DialogRender-Full] %s\n", full_text);
+            fclose(fp);
+        }
+    }
+
+    DialogRender_HookManager.unhook();
+    // 原始函數是 55 8B EC 83 EC 18 (標準 prologue)
+    // 我們直接呼叫原始位址
+    typedef int(__cdecl* DialogRender_t)(void*, void*, const char*, int);
+    int ret = ((DialogRender_t)GetDialogRenderAddr())(arg1, arg2, full_text, arg4);
+    DialogRender_HookManager.hook();
+
+    return ret;
+}
+
+int __cdecl MyFullSentenceCallHook(void* arg1, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    char buf[1024];
+    vsprintf_s(buf, fmt, args);
+    va_end(args);
+
+    FILE* fp = nullptr;
+    if (fopen_s(&fp, "convert_log3.txt", "ab") == 0 && fp != nullptr)
+    {
+        fprintf(fp, "[FullSentenceCall@0x431FCA] %s\n", buf);
+        fclose(fp);
+    }
+
+    FullSentenceCall_HookManager.unhook();
+    // 這裡我們直接呼叫原始的 GameTextPrintf
+    int ret = ((GameTextPrintf_t)GetGameTextPrintfAddr())(arg1, fmt, args); 
+    // 同樣的，由於 0xFAA0 是包裝，我們也可以直接轉發給 printf_impl
+    typedef int(__cdecl* printf_impl_t)(void**);
+    printf_impl_t original_impl = (printf_impl_t)((BYTE*)GetModuleHandleW(nullptr) + 0xE56B);
+    ret = original_impl((void**)&fmt);
+    
+    FullSentenceCall_HookManager.hook();
+
+    return ret;
+}
+
+int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...)
+{
+    PVOID callerAddr = _ReturnAddress();
+    DWORD rva = (DWORD)((BYTE*)callerAddr - (BYTE*)GetModuleHandleW(nullptr));
+
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsprintf_s(buf, fmt, args);
+    va_end(args);
+
+    FILE* fp = nullptr;
+    if (fopen_s(&fp, "convert_log2.txt", "ab") == 0 && fp != nullptr)
+    {
+        fprintf(fp, "[GameTextPrintf @ RVA 0x%08X] %s\n", rva, buf);
+        fclose(fp);
+    }
+
+    GameTextPrintf_HookManager.unhook();
+    // 使用 printf_impl 轉發以確保參數正確
+    typedef int(__cdecl* printf_impl_t)(void**);
+    printf_impl_t original_impl = (printf_impl_t)((BYTE*)GetModuleHandleW(nullptr) + 0xE56B);
+    int ret = original_impl((void**)&fmt);
+
+    GameTextPrintf_HookManager.hook();
+
+    return ret;
+}
+
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
                        LPVOID lpReserved
@@ -348,6 +473,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         Read_Phrase_File(L"phrases.txt");
         ScriptStringAnalyse_HookManager.hook();
         MciSendCommandA_HookManager.hook();
+        GameTextPrintf_HookManager.hook();
+        FullSentenceCall_HookManager.hook();
+        DialogRender_HookManager.hook();
 
         // 用特徵碼定位 printf_impl (驗證寫死 RVA / 換版本時自動掃描)
         g_PrintfImplAddr = FindPrintfImpl();
