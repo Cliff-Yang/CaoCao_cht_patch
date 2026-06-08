@@ -51,6 +51,9 @@
     <ClInclude Include="api\SetWindowTextA.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>
+    <ClInclude Include="api\SendMessageA.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
     <ClInclude Include="api\CreateFontA.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>
