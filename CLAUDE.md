@@ -25,11 +25,13 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
 
 **1. Export forwarding (DLL proxy)。** `dllmain.cpp` 用 `#pragma comment(linker, "/EXPORT:...=Koeicda_Origin.<fn>,@n")` 把全部約 20 個 `CDAudio*` exports 轉發給改名後的原始 DLL。這讓我們的 DLL 能冒充 `Koeicda.dll`，同時讓原始 DLL 繼續處理真正的 CD-audio 工作。這也是安裝步驟需要把原始檔改名為 `Koeicda_Origin.dll` 的原因。
 
-**2. Inline API hooking**，透過 `HookManager` (`HookManager.hpp`)。每個 hook 會把目標系統函式的前 5 bytes 覆寫成一個指向我們替代函式的相對 `jmp` (`0xE9 + 4-byte offset`)。各處都採用相同模式：`unhook()` → 呼叫真正的函式 → 再次 `hook()`，讓 reentrant/真實呼叫得以通過。`Address.hpp` 只是把指標重新解讀成 4 bytes 以取得 offset。被 hook 的有兩個函式：
+**2. Inline API hooking**，透過 `HookManager` (`HookManager.hpp`)。每個 hook 會把目標系統函式的前 5 bytes 覆寫成一個指向我們替代函式的相對 `jmp` (`0xE9 + 4-byte offset`)。各處都採用相同模式：`unhook()` → 呼叫真正的函式 → 再次 `hook()`，讓 reentrant/真實呼叫得以通過。`Address.hpp` 只是把指標重新解讀成 4 bytes 以取得 offset。被 hook 的主要系統函式：
 
    - **`ScriptStringAnalyse` (usp10.dll)** — 遊戲用來繪製字串的 Uniscribe text-shaping 呼叫。`MyScriptStringAnalyse` 攔截輸入字串，先做中文轉換再往下傳。這是翻譯補丁的核心。已標記為 Unicode／空字串的情況 (`cString <= 0 && iCharset != -1`) 會原封不動通過。
 
    - **`mciSendCommandA` (winmm.dll)** — 把遊戲的 CD-audio 播放導向本地 MP3 檔。此 hook 攔截 `cdaudio` 的 `MCI_OPEN`，回傳一個 sentinel device id (`MAGIC_DEVICE_ID = 0xBEEF`)，並在 `MCI_PLAY` 時把要求的 CD track 編號對應到 `music\%02d.mp3`，以 MCI element 的方式開啟／循環播放。其他針對該 sentinel device 的 MCI 訊息則 proxy 給真正的 MP3 device。(於 commit「處理三國志孔明傳音樂 hook」加入。)
+
+   - **`CreateFontA` / `CreateFontIndirectA` (gdi32.dll)** (`api/CreateFontA.hpp`) — 把遊戲繪製用字體一律換成「楷体」(Windows 內建 `simkai.ttf`，標楷體風格) 並開灰階抗鋸齒，改善原本宋體＋無抗鋸齒的觀感。`MyCreateFontA`/`MyCreateFontIndirectA` 改呼叫**寬版** `CreateFontW`/`CreateFontIndirectW`，face name 用寬字面 `L"楷体"` (避開 ANSI/GBK 編碼問題)；**charset 沿用遊戲原值**——轉換後的字串仍以 GBK 繪製，而 `楷体` 支援 GB2312/GBK 且涵蓋繁體字形，故無需更動 charset；`lfQuality` 覆寫為 `ANTIALIASED_QUALITY` (刻意不用 CLEARTYPE，以免點陣/透明背景出現次像素彩邊)。無條件替換所有字體。(此處因呼叫的是 W 版、與被 hook 的 A 版不同函式，故無 reentrant 風險。)
 
 **3. 中文轉換** (`ChsToCht.hpp`)，分「繪製端」與「整句端」兩層處理，把「一簡對多繁」的歧義字交給有上下文的整句端決定：
    - **繪製端** (`ScriptStringAnalyse`)：`UTF16LE_CHS_To_CHT` 透過 Win32 `LCMapStringW(LCMAP_TRADITIONAL_CHINESE)` 做主要的逐字簡轉繁；接著 `UTF16LE_KeepAmbiguousAsIs` 把**出現在 `dictionary.txt` 的一對多歧義字還原回原簡體**，不在此處逐字亂轉，留給整句端用上下文判斷。
