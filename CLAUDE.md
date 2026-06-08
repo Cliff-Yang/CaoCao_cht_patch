@@ -39,6 +39,20 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
    - 注意：因為繪製端會把 `dictionary.txt` 裡的字延後到整句端才轉，而整句端只在對話框跑，所以**判準是「`LCMapStringW` 有沒有自己轉對」**：放進 `dictionary.txt` 的應是 `LCMapStringW` 轉不出來的字 (一對多歧義字的預設、或它不認得的確定性字)——這些選單本來就已顯示簡體，加進來零退步、只改善對話。**切勿放 `LCMapStringW` 已能正確轉換的字**，那會被延後副作用害選單等非對話文字倒退回簡體。
    - (`UTF16LE_FixOneToMany` 為早期逐字修正版，現行管線已不使用。)
 
+## 內部函數 hook 的定位 (特徵碼掃描)
+
+`PrintfImpl` / `GameTextPrintf` / `FullSentenceCall` 不是系統 API，而是遊戲內部函數，靠 `AobScan.hpp` 定位：`FindAddress(sig, mask, hardcodedRva)` 先驗證寫死的 RVA、不中再掃所有可執行區段。同一引擎不同遊戲，這些函數可能位於相同 RVA，但因編譯版本不同而 prologue/結尾不同。
+
+## 移植到同引擎的其他遊戲 (多 sig / 呼叫慣例 / 脫殼)
+
+本補丁的引擎也被天龍八部 (`Ekd5.exe`)、云荒逍遥传等同人作品使用。移植時踩過三層坑，詳見 `notes/2026-06-08-云荒逍遥传移植-脱壳与呼叫慣例.md`：
+
+1. **加殼遊戲要先 dump 記憶體，不能靜態掃。** 例如云荒 exe 189MB、`SizeOfImage` 僅 ~7.7MB、imports 被砍到只剩 `KERNEL32`/`USER32`、section 名稱亂碼且 `VirtualSize ≫ RawSize` = 已加殼。由於 `FindAddress` 本就是 runtime 掃 `GetModuleHandle(nullptr)` 的**記憶體**（殼已解密的 code），所以用 `tools/mem_dump.py` 把執行中遊戲的主模組 dump 下來 (`OpenProcess`+`ReadProcessMemory`，外部讀取不易觸發反調試)，再對 dump 跑 AOB scan / 反組譯即可。
+
+2. **同 RVA、不同 codegen → 多特徵碼。** 同一函數在不同遊戲常落在相同 RVA 但 prologue bytes 不同 (例 `FullSentenceCall` 在天龍與云荒都在 RVA `0x2C8B0`，但前導指令不同)。改用 `AobScan.hpp` 的 `FindAddressMulti(pats, count, rva, &outIndex)`：依序試多組 sig、任一命中即回傳，並回報命中第幾組。`FullSentenceCall.hpp` 即放 A(天龍/曹操)、B(云荒) 兩組變體 sig。
+
+3. **同函數、不同呼叫慣例 → 依變體切換 hook。** 最隱蔽的坑：同一邏輯函數可能被編成不同呼叫慣例。`FullSentenceCall` 在天龍/曹操是 `__cdecl` (結尾 `8B E5 5D C3`)、在云荒是 `__stdcall` (結尾 `8B E5 5D C2 10 00`，`ret 16`)。若用錯慣例呼叫，stack 會被雙重清理 → ESP 失衡 → Debug build 跳 `Run-Time Check Failure #0 (ESP not properly saved)`、Release 則堆疊損毀。故 `FullSentenceCall.hpp` 備有 `MyFullSentenceCall_cdecl` 與 `MyFullSentenceCall_stdcall` 兩個 hook 函數 (轉換邏輯共用 `FullSentenceCall_Resolve`)，`Install_FullSentenceCall_Hook` 依 `FindAddressMulti` 回報的 `outIndex` 裝對應的那個。**判定呼叫慣例的方法：看函數 epilogue 是 `ret` (C3, cdecl) 還是 `ret N` (C2, stdcall)。** 新增變體時，hook 函數與其 typedef 的慣例都要對齊原函數。
+
 ## 編輯翻譯字典
 
 翻譯修正有兩個檔案，對應兩個層級的轉換：

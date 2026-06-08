@@ -2,3 +2,7 @@
 *.user
 Release
 Debug
+
+# mem_dump.py 產出的一次性記憶體 dump (可隨時重生, 勿入庫)
+tools/*.raw.bin
+tools/*.rebuilt.exe
