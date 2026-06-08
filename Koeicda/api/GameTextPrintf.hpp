@@ -3,6 +3,7 @@
 #include <intrin.h>
 #include "../util/HookManager.hpp"
 #include "../util/AobScan.hpp"
+#include "../util/ChsToCht.hpp"  // 取用 GBK_FullConvert
 #include "PrintfImpl.hpp"   // 取用 g_PrintfImplAddr
 #ifdef _DEBUG
 #include "../util/DebugLog.hpp"
@@ -35,23 +36,47 @@ static HookManager* g_GameTextPrintfHook = nullptr;
 
 int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...)
 {
-#ifdef _DEBUG
-    PVOID callerAddr = _ReturnAddress();
-    DWORD rva = (DWORD)((BYTE*)callerAddr - (BYTE*)GetModuleHandleW(nullptr));
-
-    char buf[1024];
+    // 先把變長參數格式化成最終 GBK 字串, 才能判斷字數並做整串簡轉繁。
+    char buf[8192];
     va_list args;
     va_start(args, fmt);
     vsprintf_s(buf, fmt, args);
     va_end(args);
 
+#ifdef _DEBUG
+    PVOID callerAddr = _ReturnAddress();
+    DWORD rva = (DWORD)((BYTE*)callerAddr - (BYTE*)GetModuleHandleW(nullptr));
     DebugLog("[GameTextPrintf] rva=0x%08X %s\n", rva, buf);
 #endif
+
+    // 文字長度 > 1 個字才整串簡轉繁: 單字呼叫多為對話框逐字顯示路徑, 該文字已由
+    // FullSentenceCall / ScriptStringAnalyse 處理過, 不在此重複轉; 多字字串則可能
+    // 是不經 draw 端 LCMapStringW 的其他文字路徑, 故在此用 GBK_FullConvert 整串定案。
+    std::string converted;
+    bool useConverted = false;
+    int charLen = MultiByteToWideChar(936, 0, buf, -1, nullptr, 0) - 1; // 扣掉結尾 0
+    if (charLen > 1 && GBK_FullConvert(buf, converted))
+    {
+        useConverted = true;
+#ifdef _DEBUG
+        DebugLog("[GameTextPrintf] [cht] %s\n", converted.c_str());
+#endif
+    }
 
     g_GameTextPrintfHook->unhook();
     // 使用 printf_impl 轉發以確保參數正確
     typedef int(__cdecl* printf_impl_t)(void**);
-    int ret = ((printf_impl_t)g_PrintfImplAddr)((void**)&fmt);
+    int ret;
+    if (useConverted)
+    {
+        // 轉換後字串以 "%s" 為格式傳入, 避免內容中的 '%' 被當成格式指示字。
+        void* newArgs[2] = { (void*)"%s", (void*)converted.c_str() };
+        ret = ((printf_impl_t)g_PrintfImplAddr)(newArgs);
+    }
+    else
+    {
+        ret = ((printf_impl_t)g_PrintfImplAddr)((void**)&fmt);
+    }
     g_GameTextPrintfHook->hook();
 
     return ret;
