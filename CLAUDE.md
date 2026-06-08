@@ -31,16 +31,18 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
 
    - **`mciSendCommandA` (winmm.dll)** — 把遊戲的 CD-audio 播放導向本地 MP3 檔。此 hook 攔截 `cdaudio` 的 `MCI_OPEN`，回傳一個 sentinel device id (`MAGIC_DEVICE_ID = 0xBEEF`)，並在 `MCI_PLAY` 時把要求的 CD track 編號對應到 `music\%02d.mp3`，以 MCI element 的方式開啟／循環播放。其他針對該 sentinel device 的 MCI 訊息則 proxy 給真正的 MP3 device。(於 commit「處理三國志孔明傳音樂 hook」加入。)
 
-**3. 中文轉換** (`ChsToCht.hpp`)，分兩階段：
-   - `UTF16LE_CHS_To_CHT` 透過 Win32 `LCMapStringW(LCMAP_TRADITIONAL_CHINESE)` 做主要的簡轉繁對應。
-   - `UTF16LE_FixOneToMany` 接著修正「一簡對多繁」而 `LCMapStringW` 選錯字的字元。正確的覆寫對應來自 `dictionary.txt`。
+**3. 中文轉換** (`ChsToCht.hpp`)，分「繪製端」與「整句端」兩層處理，把「一簡對多繁」的歧義字交給有上下文的整句端決定：
+   - **繪製端** (`ScriptStringAnalyse`)：`UTF16LE_CHS_To_CHT` 透過 Win32 `LCMapStringW(LCMAP_TRADITIONAL_CHINESE)` 做主要的逐字簡轉繁；接著 `UTF16LE_KeepAmbiguousAsIs` 把**出現在 `dictionary.txt` 的一對多歧義字還原回原簡體**，不在此處逐字亂轉，留給整句端用上下文判斷。
+   - **整句端** (`FullSentenceCall` → `GBK_ResolveAmbiguousSentence`)：對話框渲染進入點，傳入的是**完整簡體 GBK 句子**。先用詞庫 (`phrases.txt`) 對原始簡體做最長匹配修正歧義詞，未被詞庫覆蓋的歧義字再套單字預設 (`dictionary.txt`)。這是唯一的整句執行點。
+   - 注意：因為繪製端會把 `dictionary.txt` 裡的字延後到整句端才轉，而整句端只在對話框跑，所以**判準是「`LCMapStringW` 有沒有自己轉對」**：放進 `dictionary.txt` 的應是 `LCMapStringW` 轉不出來的字 (一對多歧義字的預設、或它不認得的確定性字)——這些選單本來就已顯示簡體，加進來零退步、只改善對話。**切勿放 `LCMapStringW` 已能正確轉換的字**，那會被延後副作用害選單等非對話文字倒退回簡體。
+   - (`UTF16LE_FixOneToMany` 為早期逐字修正版，現行管線已不使用。)
 
 ## 編輯翻譯字典
 
 翻譯修正有兩個檔案，對應兩個層級的轉換：
 
-- **`Koeicda/dictionary.txt` — 單字預設對應 (fallback)。** 格式為每行 `簡 : 繁` (簡體字、空格、冒號、空格、繁體字)，UTF-8 編碼。每個 token 只取 **第一個字元** (`ChsToCht.hpp` 讀 `[0]`)。loader (`Read_Dictionary_File`) 會剝除第一行開頭的 UTF-8 BOM。這裡放「一簡對多繁」字在沒有上下文時的**預設**選擇 (例如 `里 : 裡`)。
-- **`Koeicda/phrases.txt` — 詞庫例外 (優先)。** 格式為每行 `簡詞 : 繁詞` (簡繁字數必須相同，否則 `Read_Phrase_File` 跳過該行)。`GBK_ResolveAmbiguousSentence` 在整句階段先用此詞庫對**原始簡體**做貪婪最長匹配，命中的詞會覆蓋單字預設 (例如 `公里 : 公里` 讓 `里` 不被轉成 `裡`)。
+- **`Koeicda/dictionary.txt` — 單字預設對應 (fallback)。** 格式為每行 `簡 : 繁` (簡體字、空格、冒號、空格、繁體字)，UTF-8 編碼。每個 token 只取 **第一個字元** (`ChsToCht.hpp` 讀 `[0]`)。loader (`Read_Dictionary_File`) 會剝除第一行開頭的 UTF-8 BOM。這裡放 `LCMapStringW` 轉不出來的字：一是「一簡對多繁」字在沒有上下文時的**預設**選擇 (例如 `里 : 裡`)，二是 `LCMapStringW` 不認得的確定性 1:1 字。判準與「切勿放 `LCMapStringW` 已轉對的字」的原因見上節繪製端的延後轉換副作用。
+- **`Koeicda/phrases.txt` — 詞庫例外 (優先)。** 格式為每行 `簡詞 : 繁詞` (簡繁字數必須相同，否則 `Read_Phrase_File` 跳過該行)。`GBK_ResolveAmbiguousSentence` 在整句階段先用此詞庫對**原始簡體**做貪婪最長匹配，命中的詞會覆蓋單字預設 (例如 `公里 : 公里` 讓 `里` 不被轉成 `裡`)。詞庫以**首字**分桶索引 (`CHS_TO_CHT_PhraseIndex`，`Read_Phrase_File` 載入後把每桶按詞長遞減排序)，比對時每個字位置只掃首字相同的那一桶、第一個命中即最長匹配，因此詞庫可擴張到數千條而不致拖慢繪製。簡繁等長的限制也讓命中後可直接前進詞長。
 
 **新增例外時的鐵則：往 `phrases.txt` 加「簡體詞 : 繁體詞」，key 一律是原始簡體輸入。** 絕對不要用「先全部轉錯、再修正錯誤輸出」的反向做法 (例如拿已轉錯的 `公裡` 當 key 去修回 `公里`)，那會讓修正規則跟 `LCMapStringW` 的行為綁死、例外無止盡增長且無法區分歧義。詞庫比對發生在套用單字預設**之前**、且針對**原始簡體**，這才是穩定的設計。`dictionary.txt` 只放單字預設，不要拿來放反向修正。
 

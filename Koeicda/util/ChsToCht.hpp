@@ -1,5 +1,7 @@
 ﻿#pragma once
 #include <map>
+#include <unordered_map>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <utility>
@@ -12,8 +14,9 @@
 static std::map<wchar_t, wchar_t> UTF16_CHS_TO_CHT_Dictionary;
 
 // 詞庫: 簡體詞 -> 繁體詞 (一對多的上下文例外, 整句階段貪婪最長匹配)
-static std::vector<std::pair<std::wstring, std::wstring>> CHS_TO_CHT_Phrases;
-static size_t MaxPhraseLen = 0;
+//   依「首字」分桶索引以加速比對: 每個位置只需掃首字相同的詞,
+//   桶內已按詞長遞減排序, 第一個成功比中者即為最長匹配。
+static std::unordered_map<wchar_t, std::vector<std::pair<std::wstring, std::wstring>>> CHS_TO_CHT_PhraseIndex;
 
 // 轉換統計 (DEBUG log 用): 詞庫命中數 / 單字 dictionary 命中數
 struct ConvertStats
@@ -112,10 +115,19 @@ void Read_Phrase_File(std::wstring phrase_file_path)
             if (chs.empty() || chs.length() != cht.length())
                 continue;
 
-            CHS_TO_CHT_Phrases.emplace_back(chs, cht);
-            if (chs.length() > MaxPhraseLen) MaxPhraseLen = chs.length();
+            wchar_t head = chs[0];
+            CHS_TO_CHT_PhraseIndex[head].emplace_back(std::move(chs), std::move(cht));
         }
         inFile.close();
+
+        // 各首字桶內按詞長遞減排序, 使比對時第一個命中即為最長匹配
+        for (auto& bucket : CHS_TO_CHT_PhraseIndex)
+        {
+            std::sort(bucket.second.begin(), bucket.second.end(),
+                [](const std::pair<std::wstring, std::wstring>& a,
+                   const std::pair<std::wstring, std::wstring>& b)
+                { return a.first.length() > b.first.length(); });
+        }
     }
 }
 
@@ -137,19 +149,19 @@ bool GBK_ResolveAmbiguousSentence(const char* gbk, char* out, size_t outsz, Conv
     std::wstring orig = ws;
     bool changed = false;
 
-    // 1) 詞庫貪婪最長匹配
+    // 1) 詞庫貪婪最長匹配 (依首字索引, 桶內已按詞長遞減 -> 第一個命中即最長)
     for (size_t i = 0; i < ws.size(); )
     {
         bool matched = false;
-        size_t maxL = ws.size() - i;
-        if (maxL > MaxPhraseLen) maxL = MaxPhraseLen;
-        for (size_t L = maxL; L >= 1 && !matched; L--)
+        auto bucket = CHS_TO_CHT_PhraseIndex.find(ws[i]);
+        if (bucket != CHS_TO_CHT_PhraseIndex.end())
         {
-            for (const auto& p : CHS_TO_CHT_Phrases)
+            for (const auto& p : bucket->second)
             {
-                if (p.first.length() == L && ws.compare(i, L, p.first) == 0)
+                size_t L = p.first.length();
+                if (i + L <= ws.size() && ws.compare(i, L, p.first) == 0)
                 {
-                    ws.replace(i, L, p.second);
+                    ws.replace(i, L, p.second); // 簡繁等長, i 可直接前進 L
                     changed = true;
                     if (stats != nullptr) stats->phraseHits++;
                     i += L;
