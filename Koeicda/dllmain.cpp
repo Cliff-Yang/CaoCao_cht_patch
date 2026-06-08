@@ -13,6 +13,7 @@
 #include "api/DialogTextHook.hpp"
 #include "api/SetWindowTextA.hpp"
 #include "api/SendMessageA.hpp"
+#include "api/DrawTextExA.hpp"
 #include "api/CreateFontA.hpp"
 
 // 字典/詞庫載入 (簡轉繁共用)
@@ -61,6 +62,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         Install_DialogText_Hook();
         Install_SetWindowTextA_Hook();
         Install_SendMessageA_Hook();
+        Install_DrawTextExA_Hook();
         Install_CreateFont_Hook();
 
         // 遊戲內部函數 hook (特徵碼掃描定位, 各自處理掃描結果與 DEBUG log)

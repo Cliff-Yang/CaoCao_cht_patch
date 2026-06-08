@@ -54,6 +54,9 @@
     <ClInclude Include="api\SendMessageA.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>
+    <ClInclude Include="api\DrawTextExA.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
     <ClInclude Include="api\CreateFontA.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>

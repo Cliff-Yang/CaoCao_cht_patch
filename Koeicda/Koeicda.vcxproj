@@ -148,6 +148,7 @@
     <ClInclude Include="api\DialogTextHook.hpp" />
     <ClInclude Include="api\SetWindowTextA.hpp" />
     <ClInclude Include="api\SendMessageA.hpp" />
+    <ClInclude Include="api\DrawTextExA.hpp" />
     <ClInclude Include="api\CreateFontA.hpp" />
     <ClInclude Include="util\Address.hpp" />
     <ClInclude Include="util\ChsToCht.hpp" />
