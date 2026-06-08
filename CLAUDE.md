@@ -37,10 +37,14 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
 
 ## 編輯翻譯字典
 
-`Koeicda/dictionary.txt` 是翻譯修正時最常會動到的檔案。格式為每行一組對應，`簡 : 繁` (簡體字、空格、冒號、空格、繁體字)，UTF-8 編碼。每個 token 只會取用 **第一個字元** (`ChsToCht.hpp` 讀 `[0]`)。loader (`Read_Dictionary_File`) 會剝除第一行開頭的 UTF-8 BOM。當 `LCMapStringW` 對某個單字轉錯時，在這裡加一行即可覆寫該單字的轉換。
+翻譯修正有兩個檔案，對應兩個層級的轉換：
+
+- **`Koeicda/dictionary.txt` — 單字預設對應 (fallback)。** 格式為每行 `簡 : 繁` (簡體字、空格、冒號、空格、繁體字)，UTF-8 編碼。每個 token 只取 **第一個字元** (`ChsToCht.hpp` 讀 `[0]`)。loader (`Read_Dictionary_File`) 會剝除第一行開頭的 UTF-8 BOM。這裡放「一簡對多繁」字在沒有上下文時的**預設**選擇 (例如 `里 : 裡`)。
+- **`Koeicda/phrases.txt` — 詞庫例外 (優先)。** 格式為每行 `簡詞 : 繁詞` (簡繁字數必須相同，否則 `Read_Phrase_File` 跳過該行)。`GBK_ResolveAmbiguousSentence` 在整句階段先用此詞庫對**原始簡體**做貪婪最長匹配，命中的詞會覆蓋單字預設 (例如 `公里 : 公里` 讓 `里` 不被轉成 `裡`)。
+
+**新增例外時的鐵則：往 `phrases.txt` 加「簡體詞 : 繁體詞」，key 一律是原始簡體輸入。** 絕對不要用「先全部轉錯、再修正錯誤輸出」的反向做法 (例如拿已轉錯的 `公裡` 當 key 去修回 `公里`)，那會讓修正規則跟 `LCMapStringW` 的行為綁死、例外無止盡增長且無法區分歧義。詞庫比對發生在套用單字預設**之前**、且針對**原始簡體**，這才是穩定的設計。`dictionary.txt` 只放單字預設，不要拿來放反向修正。
 
 ## 慣例／注意事項
 
-- 原始碼註解使用繁體中文；部分 `.hpp` 註解是以非 UTF-8 (Big5/GBK) 編碼存檔，用 UTF-8 讀取時會顯示為亂碼 (mojibake) — 這純屬顯示問題，除非刻意重新存檔，否則請勿更動。
 - `pch.h` precompiled header 為必要；`pch.cpp` 是建立 PCH 的 translation unit。
 - 這些 hook 都是 global static 的 `HookManager` instances；其 constructor 會在載入時擷取原始 bytes。請勿更動相對於 `DllMain` 假設的建構順序。

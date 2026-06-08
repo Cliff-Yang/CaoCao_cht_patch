@@ -70,5 +70,8 @@
     <CopyFileToFolders Include="dictionary.txt">
       <Filter>資源檔</Filter>
     </CopyFileToFolders>
+    <CopyFileToFolders Include="phrases.txt">
+      <Filter>資源檔</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
 </Project>
