@@ -42,6 +42,15 @@
     <ClInclude Include="api\FullSentenceCall.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>
+    <ClInclude Include="api\LoadMenuA.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
+    <ClInclude Include="api\DialogTextHook.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
+    <ClInclude Include="api\SetWindowTextA.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
     <ClInclude Include="util\HookManager.hpp">
       <Filter>標頭檔\util</Filter>
     </ClInclude>

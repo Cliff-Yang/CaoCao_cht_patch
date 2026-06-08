@@ -210,3 +210,87 @@ bool GBK_ResolveAmbiguousSentence(const char* gbk, char* out, size_t outsz, Conv
     memcpy(out, result.c_str(), result.size() + 1);
     return true;
 }
+
+// UI 標籤 (選單列等資源字串) 用的一次性完整簡轉繁。
+//   這類文字由 OS 繪製、不經整句端後處理, 所以這裡把歧義也一次定案:
+//     LCMapStringW 作基底 -> 對原始簡體跑詞庫貪婪最長匹配 -> 未命中的歧義字套單字預設。
+//   與 GBK_ResolveAmbiguousSentence 同邏輯, 但在 UTF-16 空間、不經 GBK 來回,
+//   因此完全共用 phrases.txt / dictionary.txt, 行為與對話框端一致。
+std::wstring UTF16LE_FullConvert(const std::wstring& orig)
+{
+    if (orig.empty()) return orig;
+
+    // 基底: LCMapStringW 逐字確定性轉換
+    std::wstring out = UTF16LE_CHS_To_CHT(orig.c_str(), (UINT)orig.size());
+    if (out.size() != orig.size()) return out; // 長度理應相等; 萬一不等則退回基底, 避免索引錯位
+
+    for (size_t i = 0; i < orig.size(); )
+    {
+        // 1) 詞庫貪婪最長匹配 (依首字索引, 桶內已按詞長遞減 -> 第一個命中即最長)
+        bool matched = false;
+        auto bucket = CHS_TO_CHT_PhraseIndex.find(orig[i]);
+        if (bucket != CHS_TO_CHT_PhraseIndex.end())
+        {
+            for (const auto& p : bucket->second)
+            {
+                size_t L = p.first.length();
+                if (i + L <= orig.size() && orig.compare(i, L, p.first) == 0)
+                {
+                    out.replace(i, L, p.second); // 簡繁等長, i 可直接前進 L
+                    i += L;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched)
+        {
+            // 2) 未被詞庫覆蓋的歧義字 -> 套單字預設 (覆蓋 LCMapStringW 的基底選擇)
+            auto it = UTF16_CHS_TO_CHT_Dictionary.find(orig[i]);
+            if (it != UTF16_CHS_TO_CHT_Dictionary.end())
+                out[i] = it->second;
+            i++;
+        }
+    }
+    return out;
+}
+
+// GBK(CP936) 整串完整簡轉繁 (給 SetWindowTextA 等 ANSI 標題用)。
+//   GBK -> UTF16 -> UTF16LE_FullConvert -> GBK。有變更才回傳 true 並填入 out。
+//   因 UTF16LE_FullConvert 不改變字數 (簡繁等長、詞庫等長), cht 與原字索引對齊,
+//   編不回 GBK 的字退回原字。
+bool GBK_FullConvert(const char* gbk, std::string& out)
+{
+    if (gbk == nullptr) return false;
+
+    int wlen = MultiByteToWideChar(936, 0, gbk, -1, nullptr, 0); // 含結尾 0
+    if (wlen <= 1) return false;
+    std::wstring ws(wlen, L'\0');
+    MultiByteToWideChar(936, 0, gbk, -1, &ws[0], wlen);
+    if (!ws.empty() && ws.back() == L'\0') ws.pop_back();
+
+    std::wstring cht = UTF16LE_FullConvert(ws);
+    if (cht == ws) return false;
+
+    std::string result;
+    for (size_t i = 0; i < cht.size(); i++)
+    {
+        wchar_t wc = cht[i];
+        char mb[8];
+        BOOL usedDefault = FALSE;
+        int n = WideCharToMultiByte(936, 0, &wc, 1, mb, sizeof(mb), nullptr, &usedDefault);
+        if (n > 0 && !usedDefault)
+        {
+            result.append(mb, n);
+        }
+        else if (i < ws.size())
+        {
+            wchar_t oc = ws[i];
+            int n2 = WideCharToMultiByte(936, 0, &oc, 1, mb, sizeof(mb), nullptr, nullptr);
+            if (n2 > 0) result.append(mb, n2);
+        }
+    }
+
+    out.swap(result);
+    return true;
+}

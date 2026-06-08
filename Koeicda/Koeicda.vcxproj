@@ -144,6 +144,9 @@
     <ClInclude Include="api\PrintfImpl.hpp" />
     <ClInclude Include="api\GameTextPrintf.hpp" />
     <ClInclude Include="api\FullSentenceCall.hpp" />
+    <ClInclude Include="api\LoadMenuA.hpp" />
+    <ClInclude Include="api\DialogTextHook.hpp" />
+    <ClInclude Include="api\SetWindowTextA.hpp" />
     <ClInclude Include="util\Address.hpp" />
     <ClInclude Include="util\ChsToCht.hpp" />
     <ClInclude Include="util\HookManager.hpp" />

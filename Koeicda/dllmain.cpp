@@ -9,6 +9,9 @@
 #include "api/PrintfImpl.hpp"
 #include "api/GameTextPrintf.hpp"
 #include "api/FullSentenceCall.hpp"
+#include "api/LoadMenuA.hpp"
+#include "api/DialogTextHook.hpp"
+#include "api/SetWindowTextA.hpp"
 
 // 字典/詞庫載入 (簡轉繁共用)
 #include "util/ChsToCht.hpp"
@@ -52,6 +55,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         // 系統 API hook
         Install_ScriptStringAnalyse_Hook();
         Install_MciSendCommandA_Hook();
+        Install_LoadMenuA_Hook();
+        Install_DialogText_Hook();
+        Install_SetWindowTextA_Hook();
 
         // 遊戲內部函數 hook (特徵碼掃描定位, 各自處理掃描結果與 DEBUG log)
         Install_PrintfImpl_Hook();
