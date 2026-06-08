@@ -39,7 +39,8 @@ static void ConvertWindowText(HWND hWnd)
     {
         SetWindowTextW(hWnd, cht.c_str());
 #ifdef _DEBUG
-        DebugLog("[DialogText] %s -> %s\n", DlgDbgW2U8(buf).c_str(), DlgDbgW2U8(cht).c_str());
+        DebugLogU8("[DialogText] [before] %s\n", DlgDbgW2U8(buf).c_str());
+        DebugLogU8("[DialogText] [after ] %s\n", DlgDbgW2U8(cht).c_str());
 #endif
     }
 }
@@ -73,7 +74,7 @@ inline void Install_DialogText_Hook()
     g_dialogCallWndHook = SetWindowsHookExW(
         WH_CALLWNDPROC, DialogCallWndProc, NULL, GetCurrentThreadId());
 #ifdef _DEBUG
-    DebugLog("[DialogText] Install hook=%p err=%lu\n",
+    DebugLogU8("[DialogText] Install hook=%p err=%lu\n",
         g_dialogCallWndHook, g_dialogCallWndHook ? 0 : GetLastError());
 #endif
 }

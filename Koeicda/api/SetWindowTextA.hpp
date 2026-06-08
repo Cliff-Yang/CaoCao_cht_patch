@@ -28,7 +28,8 @@ extern "C" BOOL WINAPI MySetWindowTextA(HWND hWnd, LPCSTR lpString)
     {
         use = converted.c_str();
 #ifdef _DEBUG
-        DebugLog("[SetWindowTextA] %s -> %s\n", lpString, converted.c_str());
+        DebugLog("[SetWindowTextA] [before] %s\n", lpString);
+        DebugLog("[SetWindowTextA] [after ] %s\n", converted.c_str());
 #endif
     }
 

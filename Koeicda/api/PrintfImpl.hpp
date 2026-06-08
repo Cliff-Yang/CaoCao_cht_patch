@@ -41,7 +41,10 @@ int __cdecl MyPrintfImpl(void** pArgs)
     PVOID callerAddr = _ReturnAddress();
     DWORD rva = (DWORD)((BYTE*)callerAddr - (BYTE*)GetModuleHandleW(nullptr));
     char* fmt = (pArgs != nullptr) ? (char*)pArgs[0] : nullptr;
-    DebugLog("[PrintfImpl @ RVA 0x%08X] fmt=%s\n", rva, fmt ? fmt : "null");
+    if (!strcmp(fmt, "%s"))
+        DebugLog("[PrintfImpl] rva=0x%08X fmt=%s pArgs=%s\n", rva, fmt ? fmt : "null", (char *)pArgs[1] ? (char *)pArgs[1] : "null");
+    else
+        DebugLog("[PrintfImpl] rva=0x%08X fmt=%s\n", rva, fmt ? fmt : "null");
 #endif
 
     g_PrintfImplHook->unhook();
@@ -62,10 +65,10 @@ inline void Install_PrintfImpl_Hook()
 #ifdef _DEBUG
     BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
     if (g_PrintfImplAddr == nullptr)
-        DebugLog("[printf_impl] 特徵碼掃描失敗, 未 hook\n");
+        DebugLog("[PrintfImpl] Feature Code scan failed, not hook\n");
     else
-        DebugLog("[printf_impl] addr=%p rva=0x%X %s\n",
+        DebugLog("[PrintfImpl] addr=%p rva=0x%X %s\n",
             g_PrintfImplAddr, (unsigned)((BYTE*)g_PrintfImplAddr - base),
-            ((BYTE*)g_PrintfImplAddr == base + PRINTF_IMPL_RVA) ? "(寫死 RVA 命中)" : "(掃描找到)");
+            ((BYTE*)g_PrintfImplAddr == base + PRINTF_IMPL_RVA) ? "(by fixed RVA)" : "(found by scan)");
 #endif
 }

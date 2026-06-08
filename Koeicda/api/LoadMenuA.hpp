@@ -20,7 +20,7 @@ static HookManager LoadMenuA_HookManager {
 };
 
 #ifdef _DEBUG
-// 把 UTF-16 字串轉成 UTF-8 以便寫入 log.txt 後可讀
+// 把 UTF-16 字串轉成 UTF-8 以便寫入 log_unicode.txt 後可讀
 static std::string DbgW2U8(const std::wstring& ws)
 {
     if (ws.empty()) return std::string();
@@ -38,7 +38,7 @@ static void ConvertMenuRecursive(HMENU hMenu)
 
     int count = GetMenuItemCount(hMenu);
 #ifdef _DEBUG
-    DebugLog("[LoadMenuA] ConvertMenuRecursive hMenu=%p count=%d\n", hMenu, count);
+    DebugLogU8("[LoadMenuA] ConvertMenuRecursive hMenu=%p count=%d\n", hMenu, count);
 #endif
     for (int i = 0; i < count; i++)
     {
@@ -71,8 +71,8 @@ static void ConvertMenuRecursive(HMENU hMenu)
                     setOk = SetMenuItemInfoW(hMenu, i, TRUE, &set);
                 }
 #ifdef _DEBUG
-                DebugLog("[LoadMenuA] item %d [before] %s\n", i, DbgW2U8(buf).c_str());
-                DebugLog("[LoadMenuA] item %d [after ] %s (changed=%d setOk=%d err=%lu)\n",
+                DebugLogU8("[LoadMenuA] item %d [before] %s\n", i, DbgW2U8(buf).c_str());
+                DebugLogU8("[LoadMenuA] item %d [after ] %s (changed=%d setOk=%d err=%lu)\n",
                     i, DbgW2U8(cht).c_str(), changed ? 1 : 0, setOk ? 1 : 0,
                     changed ? GetLastError() : 0);
 #endif
@@ -93,10 +93,10 @@ extern "C" HMENU WINAPI MyLoadMenuA(HINSTANCE hInstance, LPCSTR lpMenuName)
 #ifdef _DEBUG
     // lpMenuName 可能是字串或 MAKEINTRESOURCE 整數
     if (IS_INTRESOURCE(lpMenuName))
-        DebugLog("[LoadMenuA] MyLoadMenuA called, name=#%u hMenu=%p\n",
+        DebugLogU8("[LoadMenuA] MyLoadMenuA called, name=#%u hMenu=%p\n",
             (unsigned)(ULONG_PTR)lpMenuName, hMenu);
     else
-        DebugLog("[LoadMenuA] MyLoadMenuA called, name=\"%s\" hMenu=%p\n",
+        DebugLogU8("[LoadMenuA] MyLoadMenuA called, name=\"%s\" hMenu=%p\n",
             lpMenuName ? lpMenuName : "(null)", hMenu);
 #endif
 
@@ -107,7 +107,7 @@ extern "C" HMENU WINAPI MyLoadMenuA(HINSTANCE hInstance, LPCSTR lpMenuName)
 inline void Install_LoadMenuA_Hook()
 {
 #ifdef _DEBUG
-    DebugLog("[LoadMenuA] Install_LoadMenuA_Hook\n");
+    DebugLogU8("[LoadMenuA] Install_LoadMenuA_Hook\n");
 #endif
     LoadMenuA_HookManager.hook();
 }

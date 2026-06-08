@@ -48,5 +48,6 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
 
 ## 慣例／注意事項
 
+- 所有程式碼檔案必須使用"具有BOM的UTF-8"格式來儲存，不然會編譯錯誤。
 - `pch.h` precompiled header 為必要；`pch.cpp` 是建立 PCH 的 translation unit。
 - 這些 hook 都是 global static 的 `HookManager` instances；其 constructor 會在載入時擷取原始 bytes。請勿更動相對於 `DllMain` 假設的建構順序。

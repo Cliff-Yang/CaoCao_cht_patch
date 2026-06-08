@@ -45,7 +45,7 @@ int __cdecl MyGameTextPrintf(void* arg1, const char* fmt, ...)
     vsprintf_s(buf, fmt, args);
     va_end(args);
 
-    DebugLog("[GameTextPrintf @ RVA 0x%08X] %s\n", rva, buf);
+    DebugLog("[GameTextPrintf] rva=0x%08X %s\n", rva, buf);
 #endif
 
     g_GameTextPrintfHook->unhook();
@@ -68,10 +68,10 @@ inline void Install_GameTextPrintf_Hook()
 #ifdef _DEBUG
     BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
     if (g_GameTextPrintfAddr == nullptr)
-        DebugLog("[GameTextPrintf] 特徵碼掃描失敗, 未 hook\n");
+        DebugLog("[GameTextPrintf] Feature Code scan failed, not hook\n");
     else
         DebugLog("[GameTextPrintf] addr=%p rva=0x%X %s\n",
             g_GameTextPrintfAddr, (unsigned)((BYTE*)g_GameTextPrintfAddr - base),
-            ((BYTE*)g_GameTextPrintfAddr == base + GAME_TEXT_PRINTF_RVA) ? "(寫死 RVA 命中)" : "(掃描找到)");
+            ((BYTE*)g_GameTextPrintfAddr == base + GAME_TEXT_PRINTF_RVA) ? "(by fixed RVA)" : "(found by scan)");
 #endif
 }

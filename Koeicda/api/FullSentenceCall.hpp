@@ -33,13 +33,13 @@ static PVOID g_FullSentenceCallAddr = nullptr;
 static HookManager* g_FullSentenceCallHook = nullptr;
 
 #ifdef _DEBUG
-// DEBUG 組態才編入: 把轉換前/後文字與命中狀況寫到遊戲目錄下的 log.txt
+// DEBUG 組態才編入: 把轉換前/後文字與命中狀況寫到遊戲目錄下的 log_gbk.txt
 //   (字串為 GBK, 請以 GBK/ANSI 編碼開啟檢視)
 static void DebugLogConvert(const char* before, const char* after, bool matched, const ConvertStats& stats)
 {
-    DebugLog("[before] %s\n", before != nullptr ? before : "");
-    DebugLog("[after ] %s\n", after  != nullptr ? after  : "");
-    DebugLog("[match ] %s (phrase=%d, dict=%d)\n\n",
+    DebugLog("[FullSentenceCall] [before] %s\n", before != nullptr ? before : "");
+    DebugLog("[FullSentenceCall] [after ] %s\n", after  != nullptr ? after  : "");
+    DebugLog("[FullSentenceCall] [match ] %s (phrase=%d, dict=%d)\n",
         matched ? "YES" : "no", stats.phraseHits, stats.dictHits);
 }
 #endif
@@ -82,10 +82,10 @@ inline void Install_FullSentenceCall_Hook()
 #ifdef _DEBUG
     BYTE* base = (BYTE*)GetModuleHandleW(nullptr);
     if (g_FullSentenceCallAddr == nullptr)
-        DebugLog("[FullSentenceCall] 特徵碼掃描失敗, 未 hook\n");
+        DebugLog("[FullSentenceCall] Feature Code scan failed, not hook\n");
     else
         DebugLog("[FullSentenceCall] addr=%p rva=0x%X %s\n",
             g_FullSentenceCallAddr, (unsigned)((BYTE*)g_FullSentenceCallAddr - base),
-            ((BYTE*)g_FullSentenceCallAddr == base + FULL_SENTENCE_CALL_RVA) ? "(寫死 RVA 命中)" : "(掃描找到)");
+            ((BYTE*)g_FullSentenceCallAddr == base + FULL_SENTENCE_CALL_RVA) ? "(by fixed RVA)" : "(found by scan)");
 #endif
 }
