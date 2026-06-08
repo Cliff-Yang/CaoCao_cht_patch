@@ -13,6 +13,12 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="標頭檔\api">
+      <UniqueIdentifier>{a1b2c3d4-0001-4000-8000-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="標頭檔\util">
+      <UniqueIdentifier>{a1b2c3d4-0002-4000-8000-000000000002}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -21,14 +27,35 @@
     <ClInclude Include="pch.h">
       <Filter>標頭檔</Filter>
     </ClInclude>
-    <ClInclude Include="HookManager.hpp">
-      <Filter>標頭檔</Filter>
+    <ClInclude Include="api\MciSendCommandA.hpp">
+      <Filter>標頭檔\api</Filter>
     </ClInclude>
-    <ClInclude Include="Address.hpp">
-      <Filter>標頭檔</Filter>
+    <ClInclude Include="api\ScriptStringAnalyse.hpp">
+      <Filter>標頭檔\api</Filter>
     </ClInclude>
-    <ClInclude Include="ChsToCht.hpp">
-      <Filter>標頭檔</Filter>
+    <ClInclude Include="api\PrintfImpl.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
+    <ClInclude Include="api\GameTextPrintf.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
+    <ClInclude Include="api\FullSentenceCall.hpp">
+      <Filter>標頭檔\api</Filter>
+    </ClInclude>
+    <ClInclude Include="util\HookManager.hpp">
+      <Filter>標頭檔\util</Filter>
+    </ClInclude>
+    <ClInclude Include="util\Address.hpp">
+      <Filter>標頭檔\util</Filter>
+    </ClInclude>
+    <ClInclude Include="util\ChsToCht.hpp">
+      <Filter>標頭檔\util</Filter>
+    </ClInclude>
+    <ClInclude Include="util\AobScan.hpp">
+      <Filter>標頭檔\util</Filter>
+    </ClInclude>
+    <ClInclude Include="util\DebugLog.hpp">
+      <Filter>標頭檔\util</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

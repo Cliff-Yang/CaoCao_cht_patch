@@ -139,10 +139,17 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Address.hpp" />
-    <ClInclude Include="ChsToCht.hpp" />
+    <ClInclude Include="api\MciSendCommandA.hpp" />
+    <ClInclude Include="api\ScriptStringAnalyse.hpp" />
+    <ClInclude Include="api\PrintfImpl.hpp" />
+    <ClInclude Include="api\GameTextPrintf.hpp" />
+    <ClInclude Include="api\FullSentenceCall.hpp" />
+    <ClInclude Include="util\Address.hpp" />
+    <ClInclude Include="util\ChsToCht.hpp" />
+    <ClInclude Include="util\HookManager.hpp" />
+    <ClInclude Include="util\AobScan.hpp" />
+    <ClInclude Include="util\DebugLog.hpp" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="HookManager.hpp" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
