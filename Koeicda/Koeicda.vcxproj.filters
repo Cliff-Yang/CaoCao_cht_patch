@@ -33,13 +33,7 @@
     <ClInclude Include="api\ScriptStringAnalyse.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>
-    <ClInclude Include="api\PrintfImpl.hpp">
-      <Filter>標頭檔\api</Filter>
-    </ClInclude>
-    <ClInclude Include="api\GameTextPrintf.hpp">
-      <Filter>標頭檔\api</Filter>
-    </ClInclude>
-    <ClInclude Include="api\FullSentenceCall.hpp">
+    <ClInclude Include="api\ReadFileHook.hpp">
       <Filter>標頭檔\api</Filter>
     </ClInclude>
     <ClInclude Include="api\LoadMenuA.hpp">
@@ -67,6 +61,9 @@
       <Filter>標頭檔\util</Filter>
     </ClInclude>
     <ClInclude Include="util\ChsToCht.hpp">
+      <Filter>標頭檔\util</Filter>
+    </ClInclude>
+    <ClInclude Include="util\EexScript.hpp">
       <Filter>標頭檔\util</Filter>
     </ClInclude>
     <ClInclude Include="util\AobScan.hpp">

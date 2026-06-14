@@ -6,9 +6,7 @@
 // 以保留兩個 static HookManager 的建構順序 (見 CLAUDE.md)。
 #include "api/MciSendCommandA.hpp"
 #include "api/ScriptStringAnalyse.hpp"
-#include "api/PrintfImpl.hpp"
-#include "api/GameTextPrintf.hpp"
-#include "api/FullSentenceCall.hpp"
+#include "api/ReadFileHook.hpp"
 #include "api/LoadMenuA.hpp"
 #include "api/DialogTextHook.hpp"
 #include "api/SetWindowTextA.hpp"
@@ -65,10 +63,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         Install_DrawTextExA_Hook();
         Install_CreateFont_Hook();
 
-        // 遊戲內部函數 hook (特徵碼掃描定位, 各自處理掃描結果與 DEBUG log)
-        Install_PrintfImpl_Hook();
-        Install_GameTextPrintf_Hook();
-        Install_FullSentenceCall_Hook();
+        // 讀檔時簡轉繁: hook CreateFileA/ReadFile, 把 *.eex 劇本文字就地轉繁
+        // (取代原本 hook 遊戲內部函數 FullSentenceCall/GameTextPrintf/PrintfImpl)
+        Install_ReadFile_Hook();
         break;
     }
     case DLL_THREAD_ATTACH:
