@@ -25,7 +25,11 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
 
 **1. Export forwarding (DLL proxy)。** `dllmain.cpp` 用 `#pragma comment(linker, "/EXPORT:...=Koeicda_Origin.<fn>,@n")` 把全部約 20 個 `CDAudio*` exports 轉發給改名後的原始 DLL。這讓我們的 DLL 能冒充 `Koeicda.dll`，同時讓原始 DLL 繼續處理真正的 CD-audio 工作。這也是安裝步驟需要把原始檔改名為 `Koeicda_Origin.dll` 的原因。
 
-**2. Inline API hooking**，透過 `HookManager` (`HookManager.hpp`)。每個 hook 會把目標系統函式的前 5 bytes 覆寫成一個指向我們替代函式的相對 `jmp` (`0xE9 + 4-byte offset`)。各處都採用相同模式：`unhook()` → 呼叫真正的函式 → 再次 `hook()`，讓 reentrant/真實呼叫得以通過。`Address.hpp` 只是把指標重新解讀成 4 bytes 以取得 offset。被 hook 的主要系統函式：
+**2. Inline API hooking**，透過 `HookManager` (`HookManager.hpp`)。每個 hook 會把目標系統函式的前 5 bytes 覆寫成一個指向我們替代函式的相對 `jmp` (`0xE9 + 4-byte offset`)。各處都採用相同模式：`unhook()` → 呼叫真正的函式 → 再次 `hook()`，讓 reentrant/真實呼叫得以通過。`Address.hpp` 只是把指標重新解讀成 4 bytes 以取得 offset。
+
+   **執行緒安全 (thread-safety)。** 這套 `unhook → 真呼叫 → hook` 的 per-call patching、以及它依賴的共享狀態，預設都假設只有單一執行緒會進到 hook。這對繪製類 hook (主執行緒) 成立，但**對 `ReadFile`/`CreateFileA` 不成立**：被 proxy 的 CD-audio DLL 換 BGM 時會在 MCI worker thread 上讀 `music\NN.mp3`，那些呼叫也會進到我們的 `ReadFile`/`CreateFileA` hook，與主執行緒載入 `.eex` 同時發生。缺乏同步時兩執行緒會同時改寫同一段 5-byte patch、並同時存取 `g_EexHandles` (`std::unordered_set`，insert 觸發 rehash 重配 bucket vs 另一執行緒 find 走訪) → heap free-list 損毀 → 稍後在 ntdll heap allocator 內 AV (曾導致「進 S_38 換 BGM 時穩定閃退」)。故這兩個 hook 本體以全域 recursive `CRITICAL_SECTION` (`util/HookLock.hpp` 的 `HookGuard`，於 `DllMain` 最前 `InitHookLock()` 初始化) 串行化；`CRITICAL_SECTION` 可重入，轉換期間 re-entrant 回到 hook 也不會自我死鎖。**新增任何「可能被非主執行緒呼叫」的 hook 時務必比照套 `HookGuard`。**
+
+   被 hook 的主要系統函式：
 
    - **`ScriptStringAnalyse` (usp10.dll)** — 遊戲用來繪製字串的 Uniscribe text-shaping 呼叫。`MyScriptStringAnalyse` 攔截輸入字串，先做中文轉換再往下傳。這是翻譯補丁的核心。已標記為 Unicode／空字串的情況 (`cString <= 0 && iCharset != -1`) 會原封不動通過。
 
@@ -67,3 +71,4 @@ Build 完成後，`dictionary.txt` 會被複製到 DLL 旁邊 (vcxproj 中的 `C
 - 所有程式碼檔案必須使用"具有BOM的UTF-8"格式來儲存，不然會編譯錯誤。
 - `pch.h` precompiled header 為必要；`pch.cpp` 是建立 PCH 的 translation unit。
 - 這些 hook 都是 global static 的 `HookManager` instances；其 constructor 會在載入時擷取原始 bytes。請勿更動相對於 `DllMain` 假設的建構順序。
+- hook 全域高頻 / 可能跨執行緒的系統 API (如 `ReadFile`/`CreateFileA`) 時，`unhook → 真呼叫 → hook` 不是 thread-safe，必須用 `util/HookLock.hpp` 的 `HookGuard` 串行化 patch 視窗與共享狀態 (緣由見運作原理第 2 節的執行緒安全說明)。

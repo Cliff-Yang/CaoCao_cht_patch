@@ -3,6 +3,7 @@
 #include <unordered_set>
 #include "../util/HookManager.hpp"
 #include "../util/Address.hpp"
+#include "../util/HookLock.hpp"
 #include "../util/EexScript.hpp"
 #ifdef _DEBUG
 #include "../util/DebugLog.hpp"
@@ -22,8 +23,13 @@
 //   handle 值縱被回收再用也幾乎不可能同時撞上 EEX magic; 省去對高頻 CloseHandle
 //   做 unhook/rehook 的成本與 race surface。stale handle 僅佔極少記憶體。
 //
-//   執行緒模型沿用本專案既有 hook 慣例 (unhook → 真呼叫 → hook, 不加鎖); 此老引擎
-//   資源載入為單執行緒。
+//   執行緒模型: ReadFile/CreateFileA 與其他 hook 不同 —— 不是只有主執行緒會碰。
+//   被 proxy 的 CD-audio DLL 換 BGM 時, MCI 會在自己的 worker thread 上讀
+//   music\NN.mp3, 那些 ReadFile/CreateFileA 也會進到這裡, 與主執行緒載入 .eex 同時
+//   發生。故兩個 hook 本體都以全域 HookGuard (CRITICAL_SECTION) 串行化, 保護 5-byte
+//   patch 視窗與下面共享的 g_EexHandles; 缺鎖會在進場景換 BGM 時撞壞 heap 而閃退
+//   (詳見 util/HookLock.hpp)。CRITICAL_SECTION 可重入, 轉換期間 re-entrant 回到
+//   MyReadFile 不會自我死鎖。
 //*****************************************************
 
 extern "C" HANDLE WINAPI MyCreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
@@ -61,6 +67,8 @@ extern "C" HANDLE WINAPI MyCreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess,
     LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition,
     DWORD dwFlagsAndAttributes, HANDLE hTemplateFile)
 {
+    HookGuard guard; // 串行化 patch 視窗 + g_EexHandles 存取 (見檔頭執行緒模型說明)
+
     bool isEex = IsEexPath(lpFileName);
 
     CreateFileA_HookManager.unhook();
@@ -81,6 +89,8 @@ extern "C" HANDLE WINAPI MyCreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess,
 extern "C" BOOL WINAPI MyReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD nNumberOfBytesToRead,
     LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped)
 {
+    HookGuard guard; // 串行化 patch 視窗 + g_EexHandles 存取 (見檔頭執行緒模型說明)
+
     ReadFile_HookManager.unhook();
     BOOL ret = ReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
     ReadFile_HookManager.hook();

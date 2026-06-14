@@ -66,6 +66,9 @@
     <ClInclude Include="util\EexScript.hpp">
       <Filter>標頭檔\util</Filter>
     </ClInclude>
+    <ClInclude Include="util\HookLock.hpp">
+      <Filter>標頭檔\util</Filter>
+    </ClInclude>
     <ClInclude Include="util\AobScan.hpp">
       <Filter>標頭檔\util</Filter>
     </ClInclude>

@@ -17,6 +17,9 @@
 // 字典/詞庫載入 (簡轉繁共用)
 #include "util/ChsToCht.hpp"
 
+// 全域 hook 串行化鎖 (見 util/HookLock.hpp); 在此給出唯一定義。
+CRITICAL_SECTION g_HookLock;
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // 導出函數 (DLL proxy: 轉發給改名後的原始 Koeicda_Origin.dll)
 #pragma comment(linker, "/EXPORT:CDAudioClose=Koeicda_Origin.CDAudioClose,@1")
@@ -50,6 +53,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH:
     {
+        InitHookLock(); // 必須在任何 hook 安裝前初始化串行化鎖
+
         Read_Dictionary_File(L"dictionary.txt");
         Read_Phrase_File(L"phrases.txt");
 

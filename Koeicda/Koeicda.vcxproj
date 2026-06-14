@@ -151,6 +151,7 @@
     <ClInclude Include="util\Address.hpp" />
     <ClInclude Include="util\ChsToCht.hpp" />
     <ClInclude Include="util\EexScript.hpp" />
+    <ClInclude Include="util\HookLock.hpp" />
     <ClInclude Include="util\HookManager.hpp" />
     <ClInclude Include="util\AobScan.hpp" />
     <ClInclude Include="util\DebugLog.hpp" />
